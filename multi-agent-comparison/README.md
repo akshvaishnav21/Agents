@@ -58,13 +58,36 @@ Coordination is explicit Python — no guessing, no non-determinism in the pipel
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env    # add your ANTHROPIC_API_KEY
+cp .env.example .env    # add keys for whichever provider(s) you want to use
 
+# Default: Claude (Anthropic)
 python main.py "Compare iPhone 17 vs Galaxy S26 Ultra"
 
+# Use OpenAI
+python main.py "Compare MacBook Pro vs Dell XPS 15" --provider openai
+
+# Use Gemini
+python main.py "Compare PS5 vs Xbox Series X" --provider gemini
+
+# Override the model
+python main.py "Compare AirPods Pro vs Sony WH-1000XM6" --provider openai --model gpt-4o-mini
+
 # Save report to file
-python main.py "Compare MacBook Pro vs Dell XPS 15" --save report.md
+python main.py "Compare iPhone 17 vs Galaxy S26 Ultra" --save report.md
 ```
+
+## Provider & Model Options
+
+| Flag | Options | Default model |
+|---|---|---|
+| `--provider anthropic` | Claude | `claude-opus-4-6` |
+| `--provider openai` | GPT | `gpt-4o` |
+| `--provider gemini` | Gemini | `gemini-1.5-pro` |
+
+Set the matching API key in `.env`:
+- `ANTHROPIC_API_KEY` for Anthropic
+- `OPENAI_API_KEY` for OpenAI
+- `GOOGLE_API_KEY` for Gemini
 
 ## How It Differs From `product-comparison-agent`
 

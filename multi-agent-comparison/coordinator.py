@@ -5,10 +5,10 @@ Parses the user query, loads memory, dispatches to sub-agents in sequence,
 saves the result to memory, and returns the final report.
 """
 import json
-import anthropic
 from memory import MemoryStore
 from agents import run_researcher, run_analyst, run_writer
 from display import print_transition, print_memory
+from providers import LLMProvider
 
 _PARSE_SYSTEM = """\
 Extract the two products being compared from the user's query.
@@ -25,20 +25,18 @@ Output ONLY a JSON object — no markdown, no extra text:
 _DEFAULT_FOCUS = ["specs", "pricing", "camera", "battery", "performance", "reviews"]
 
 
-def run_coordinator(user_query: str) -> str:
+def run_coordinator(user_query: str, provider: LLMProvider) -> str:
     memory = MemoryStore()
 
     # ── Step 1: Parse query ──────────────────────────────────────
-    client = anthropic.Anthropic()
-    parse_response = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=256,
+    parse_response = provider.complete(
         system=_PARSE_SYSTEM,
         messages=[{"role": "user", "content": user_query}],
+        tools=[],
+        max_tokens=256,
     )
-
     product_a, product_b, category, focus_areas = _parse_query(
-        parse_response, user_query
+        parse_response.text, user_query
     )
 
     # ── Step 2: Load memory ──────────────────────────────────────
@@ -55,6 +53,7 @@ def run_coordinator(user_query: str) -> str:
         product_name=product_a,
         focus_areas=focus_areas,
         memory_store=memory,
+        provider=provider,
         agent_label="Researcher A",
     )
 
@@ -64,16 +63,17 @@ def run_coordinator(user_query: str) -> str:
         product_name=product_b,
         focus_areas=focus_areas,
         memory_store=memory,
+        provider=provider,
         agent_label="Researcher B",
     )
 
     # ── Step 5: Analyst ──────────────────────────────────────────
     print_transition("Coordinator", "Analyst")
-    analysis = run_analyst(research_a, research_b, memory_context)
+    analysis = run_analyst(research_a, research_b, provider, memory_context)
 
     # ── Step 6: Writer ───────────────────────────────────────────
     print_transition("Coordinator", "Writer")
-    report = run_writer(analysis)
+    report = run_writer(analysis, provider)
 
     # ── Step 7: Save to memory ───────────────────────────────────
     entry_id = memory.save_comparison(
@@ -89,22 +89,19 @@ def run_coordinator(user_query: str) -> str:
     return report
 
 
-def _parse_query(response, fallback_query: str):
-    """Extract structured fields from the parse response."""
-    for block in response.content:
-        if block.type == "text":
-            try:
-                data = json.loads(block.text.strip())
-                return (
-                    data.get("product_a", "Product A"),
-                    data.get("product_b", "Product B"),
-                    data.get("category", "other"),
-                    data.get("focus_areas", _DEFAULT_FOCUS),
-                )
-            except json.JSONDecodeError:
-                pass
+def _parse_query(text: str | None, fallback_query: str):
+    if text:
+        try:
+            data = json.loads(text.strip())
+            return (
+                data.get("product_a", "Product A"),
+                data.get("product_b", "Product B"),
+                data.get("category", "other"),
+                data.get("focus_areas", _DEFAULT_FOCUS),
+            )
+        except json.JSONDecodeError:
+            pass
 
-    # Fallback: use the raw query split on "vs"
     parts = fallback_query.lower().replace("compare", "").split(" vs ")
     if len(parts) == 2:
         return parts[0].strip().title(), parts[1].strip().title(), "other", _DEFAULT_FOCUS

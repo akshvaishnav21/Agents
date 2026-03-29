@@ -4,9 +4,10 @@ Writer Agent — formats the final markdown report.
 Receives the structured AnalysisResult and returns a polished
 markdown comparison report as a plain string.
 """
-import anthropic
+import json
 from schemas import AnalysisResult
 from display import print_agent_done
+from providers import LLMProvider
 
 SYSTEM_PROMPT = """\
 You are a consumer tech writer. Format the provided analysis data into a
@@ -43,23 +44,22 @@ Use this exact structure:
 """
 
 
-def run_writer(analysis: AnalysisResult) -> str:
-    client = anthropic.Anthropic()
-
-    import json
-    user_content = f"Format this analysis into the markdown report:\n\n{json.dumps(analysis.to_dict(), indent=2)}"
-
-    response = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+def run_writer(analysis: AnalysisResult, provider: LLMProvider) -> str:
+    user_content = (
+        f"Format this analysis into the markdown report:\n\n"
+        f"{json.dumps(analysis.to_dict(), indent=2)}"
     )
 
-    for block in response.content:
-        if block.type == "text":
-            print_agent_done("Writer")
-            return block.text
+    response = provider.complete(
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+        tools=[],
+        max_tokens=4096,
+    )
+
+    if response.text:
+        print_agent_done("Writer")
+        return response.text
 
     print_agent_done("Writer", "empty response")
     return "Report generation failed."

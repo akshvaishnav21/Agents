@@ -5,9 +5,9 @@ Receives research from both Researcher agents and produces
 a structured AnalysisResult as JSON.
 """
 import json
-import anthropic
 from schemas import ResearchResult, AnalysisResult
 from display import print_agent_done
+from providers import LLMProvider
 
 SYSTEM_PROMPT = """\
 You are a product analyst. You receive raw research data for two products
@@ -41,42 +41,39 @@ Output ONLY a JSON object in this exact format (no markdown, no extra text):
 def run_analyst(
     research_a: ResearchResult,
     research_b: ResearchResult,
+    provider: LLMProvider,
     memory_context: str = "",
 ) -> AnalysisResult:
-    client = anthropic.Anthropic()
-
     user_content = f"{research_a.to_prompt_text()}\n\n{research_b.to_prompt_text()}"
     if memory_context:
         user_content += f"\n\n---\nRelevant past comparisons from memory:\n{memory_context}"
 
-    response = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=2048,
+    response = provider.complete(
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        tools=[],
+        max_tokens=2048,
     )
 
-    for block in response.content:
-        if block.type == "text":
-            try:
-                data = json.loads(block.text.strip())
-                result = AnalysisResult(
-                    product_a=data.get("product_a", research_a.product_name),
-                    product_b=data.get("product_b", research_b.product_name),
-                    feature_rows=data.get("feature_rows", []),
-                    product_a_pros=data.get("product_a_pros", []),
-                    product_a_cons=data.get("product_a_cons", []),
-                    product_b_pros=data.get("product_b_pros", []),
-                    product_b_cons=data.get("product_b_cons", []),
-                    verdict=data.get("verdict", ""),
-                    buy_a_if=data.get("buy_a_if", ""),
-                    buy_b_if=data.get("buy_b_if", ""),
-                )
-                print_agent_done("Analyst",
-                                 f"{len(result.feature_rows)} features compared")
-                return result
-            except json.JSONDecodeError:
-                pass
+    if response.text:
+        try:
+            data = json.loads(response.text.strip())
+            result = AnalysisResult(
+                product_a=data.get("product_a", research_a.product_name),
+                product_b=data.get("product_b", research_b.product_name),
+                feature_rows=data.get("feature_rows", []),
+                product_a_pros=data.get("product_a_pros", []),
+                product_a_cons=data.get("product_a_cons", []),
+                product_b_pros=data.get("product_b_pros", []),
+                product_b_cons=data.get("product_b_cons", []),
+                verdict=data.get("verdict", ""),
+                buy_a_if=data.get("buy_a_if", ""),
+                buy_b_if=data.get("buy_b_if", ""),
+            )
+            print_agent_done("Analyst", f"{len(result.feature_rows)} features compared")
+            return result
+        except json.JSONDecodeError:
+            pass
 
     print_agent_done("Analyst", "parse fallback")
     return AnalysisResult(
